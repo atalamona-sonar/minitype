@@ -1,0 +1,18 @@
+[package]
+name = "minitype"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+arboard = "3.7.0"
+core-foundation = "0.10.1"
+core-graphics = "0.25.0"
+cpal = "0.18"
+enigo = "0.6"
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", features = ["NSPanel", "NSWindow", "NSResponder", "NSView", "NSVisualEffectView", "NSTextField", "NSControl", "NSScreen", "NSColor", "NSFont", "NSText", "NSGraphics", "NSCell", "NSParagraphStyle", "NSColorSpace", "objc2-core-foundation", "objc2-quartz-core"] }
+objc2-foundation = { version = "0.3", features = ["NSString", "NSGeometry"] }
+tao = "0.37.2"
+tray-icon = "0.26.1"
+ureq = "3.5.2"
+whisper-rs = { version = "0.16", features = ["metal"] }
