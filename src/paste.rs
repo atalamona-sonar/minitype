@@ -9,6 +9,13 @@ use enigo::{Direction, Enigo, Key, Keyboard, Settings};
 /// macOS virtual key code for "V" (layout independent).
 const KEY_V: u32 = 9;
 
+/// Leaves `text` on the clipboard without pasting.
+pub fn copy(text: &str) -> Result<(), String> {
+    Clipboard::new()
+        .and_then(|mut c| c.set_text(text))
+        .map_err(|e| e.to_string())
+}
+
 pub fn paste(text: &str) -> Result<(), String> {
     let mut clipboard = Clipboard::new().map_err(|e| e.to_string())?;
     let saved = clipboard.get_text().ok();

@@ -22,6 +22,7 @@ const MAX_CHARS: usize = 70;
 pub enum Look {
     Listening,
     Working,
+    Loading,
 }
 
 pub struct Pill {
@@ -86,10 +87,12 @@ impl Pill {
         Self { panel, dot, text }
     }
 
-    pub fn show(&self, mtm: MainThreadMarker, look: Look, text: &str) {
+    /// `top`: show under the menu bar instead of above the Dock.
+    pub fn show(&self, mtm: MainThreadMarker, look: Look, text: &str, top: bool) {
         let (color, fallback) = match look {
             Look::Listening => (NSColor::systemRedColor(), "Listening..."),
             Look::Working => (NSColor::systemOrangeColor(), "Transcribing..."),
+            Look::Loading => (NSColor::systemGrayColor(), "Loading model..."),
         };
         self.dot.setTextColor(Some(&color));
         let shown = if text.is_empty() { fallback.to_string() } else { tail(text, MAX_CHARS) };
@@ -98,7 +101,11 @@ impl Pill {
         if let Some(screen) = NSScreen::mainScreen(mtm) {
             let area = screen.visibleFrame();
             let x = area.origin.x + (area.size.width - WIDTH) / 2.0;
-            let y = area.origin.y + BOTTOM_GAP;
+            let y = if top {
+                area.origin.y + area.size.height - HEIGHT - BOTTOM_GAP
+            } else {
+                area.origin.y + BOTTOM_GAP
+            };
             self.panel.setFrameOrigin(NSPoint::new(x, y));
         }
         self.panel.orderFrontRegardless();

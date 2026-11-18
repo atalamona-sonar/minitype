@@ -1,0 +1,128 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #ececec; --card: #ffffff; --line: rgba(0,0,0,.08); --text: #1d1d1f; --dim: #6e6e73; --accent: #0a84ff;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #1e1e1e; --card: #2b2b2b; --line: rgba(255,255,255,.08); --text: #f5f5f7; --dim: #98989d; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 14px 16px 10px; background: var(--bg); color: var(--text);
+         font: 13px -apple-system, BlinkMacSystemFont, sans-serif; -webkit-user-select: none; cursor: default; }
+  h2 { font-size: 11px; font-weight: 600; color: var(--dim); text-transform: uppercase; letter-spacing: .04em; margin: 14px 4px 6px; }
+  h2:first-child { margin-top: 0; }
+  .card { background: var(--card); border-radius: 10px; }
+  .row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 12px; min-height: 36px; }
+  .row + .row { border-top: 1px solid var(--line); }
+  .row > label:first-child { flex: 1; }
+  .hint { display: block; font-size: 11px; color: var(--dim); margin-top: 2px; }
+  select { font: inherit; color: var(--text); background: transparent; border: 1px solid var(--line);
+           border-radius: 6px; padding: 3px 6px; max-width: 210px; }
+  select:disabled { opacity: .45; }
+  /* Switch */
+  .sw { position: relative; width: 32px; height: 18px; flex: none; }
+  .sw input { opacity: 0; width: 0; height: 0; position: absolute; }
+  .sw span { position: absolute; inset: 0; border-radius: 9px; background: rgba(120,120,128,.32); transition: background .15s; }
+  .sw span::after { content: ""; position: absolute; left: 2px; top: 2px; width: 14px; height: 14px; border-radius: 50%;
+                    background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.3); transition: transform .15s; }
+  .sw input:checked + span { background: var(--accent); }
+  .sw input:checked + span::after { transform: translateX(14px); }
+  footer { display: flex; justify-content: space-between; color: var(--dim); font-size: 11px; margin: 12px 4px 0; }
+</style>
+</head>
+<body>
+  <h2>Transcription</h2>
+  <div class="card">
+    <div class="row"><label>Model<span class="hint" id="modelHint"></span></label><select id="model"></select></div>
+    <div class="row"><label>Language<span class="hint" id="langHint"></span></label>
+      <select id="language">
+        <option value="auto">Auto-detect</option><option value="en">English</option><option value="it">Italian</option>
+        <option value="fr">French</option><option value="de">German</option><option value="es">Spanish</option>
+        <option value="nl">Dutch</option><option value="pt">Portuguese</option>
+      </select></div>
+    <div class="row"><label>Output</label>
+      <select id="output"><option value="paste">Paste into app</option><option value="clipboard">Copy to clipboard only</option></select></div>
+    <div class="row"><label>Live preview<span class="hint">Show words in the overlay while you talk</span></label>
+      <label class="sw"><input type="checkbox" id="live_preview"><span></span></label></div>
+  </div>
+
+  <h2>Shortcut</h2>
+  <div class="card">
+    <div class="row"><label>Key</label>
+      <select id="key">
+        <option value="fn">Fn / Globe</option><option value="right_option">Right Option</option>
+        <option value="right_command">Right Command</option><option value="right_control">Right Control</option>
+        <option value="left_option">Left Option</option>
+      </select></div>
+    <div class="row"><label>Behaviour</label>
+      <select id="mode"><option value="hold">Hold to talk</option><option value="toggle">Press to start / stop</option></select></div>
+    <div class="row"><label>Esc cancels recording</label>
+      <label class="sw"><input type="checkbox" id="esc_cancels"><span></span></label></div>
+  </div>
+
+  <h2>Audio</h2>
+  <div class="card">
+    <div class="row"><label>Microphone</label><select id="microphone"></select></div>
+    <div class="row"><label>Sounds</label><label class="sw"><input type="checkbox" id="sounds"><span></span></label></div>
+    <div class="row"><label>Mute speakers while recording</label>
+      <label class="sw"><input type="checkbox" id="mute_while_recording"><span></span></label></div>
+  </div>
+
+  <h2>App</h2>
+  <div class="card">
+    <div class="row"><label>Overlay</label>
+      <select id="overlay"><option value="bottom">Bottom</option><option value="top">Top</option><option value="off">Off</option></select></div>
+    <div class="row"><label>Unload model when idle<span class="hint">Frees memory; the next dictation starts slower</span></label>
+      <select id="unload_after_mins"><option value="0">Never</option><option value="5">After 5 min</option>
+        <option value="15">After 15 min</option><option value="60">After 1 hour</option></select></div>
+    <div class="row"><label>Start hidden</label><label class="sw"><input type="checkbox" id="start_hidden"><span></span></label></div>
+    <div class="row"><label>Launch at login</label><label class="sw"><input type="checkbox" id="launch_at_login"><span></span></label></div>
+    <div class="row"><label>Show menu bar icon<span class="hint">Without it, open minitype again to see this window</span></label>
+      <label class="sw"><input type="checkbox" id="show_tray"><span></span></label></div>
+  </div>
+
+  <footer><span id="status"></span><span>minitype</span></footer>
+
+<script>
+  const init = window.__INIT;
+  const $ = (id) => document.getElementById(id);
+  const s = init.settings;
+
+  function option(value, text) { const o = document.createElement("option"); o.value = value; o.textContent = text; return o; }
+
+  for (const m of init.models) $("model").append(option(m.id, m.name + (m.downloaded ? "" : ` (${m.size_mb} MB)`)));
+  $("microphone").append(option("", "System default"));
+  for (const name of init.mics) $("microphone").append(option(name, name));
+  if (s.microphone && !init.mics.includes(s.microphone)) $("microphone").append(option(s.microphone, s.microphone + " (not connected)"));
+
+  const fields = ["model", "language", "output", "live_preview", "key", "mode", "esc_cancels", "microphone",
+                  "sounds", "mute_while_recording", "overlay", "unload_after_mins", "start_hidden", "launch_at_login", "show_tray"];
+
+  function refreshHints() {
+    const m = init.models.find((x) => x.id === $("model").value);
+    $("modelHint").textContent = m ? m.blurb : "";
+    const parakeet = m && m.kind === "parakeet";
+    $("language").disabled = parakeet;
+    $("langHint").textContent = parakeet ? "Parakeet detects the language itself" : "";
+  }
+
+  for (const f of fields) {
+    const el = $(f);
+    if (el.type === "checkbox") el.checked = !!s[f]; else el.value = String(s[f]);
+    el.addEventListener("change", () => {
+      s[f] = el.type === "checkbox" ? el.checked : (f === "unload_after_mins" ? Number(el.value) : el.value);
+      refreshHints();
+      window.ipc.postMessage(JSON.stringify(s));
+    });
+  }
+  refreshHints();
+
+  window.setStatus = (text) => { $("status").textContent = text; };
+  setStatus(init.status);
+</script>
+</body>
+</html>

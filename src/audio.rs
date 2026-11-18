@@ -19,8 +19,23 @@ pub struct Recording {
     done_rx: mpsc::Receiver<()>,
 }
 
+fn device_name(d: &cpal::Device) -> Option<String> {
+    d.description().ok().map(|desc| desc.name().to_string())
+}
+
+/// Names of the available microphones.
+pub fn input_devices() -> Vec<String> {
+    cpal::default_host()
+        .input_devices()
+        .map(|it| it.filter_map(|d| device_name(&d)).collect())
+        .unwrap_or_default()
+}
+
 impl Recording {
-    pub fn start() -> Result<Self, String> {
+    /// Records from the microphone called `mic`, or the default one if `mic` is
+    /// empty or not connected.
+    pub fn start(mic: &str) -> Result<Self, String> {
+        let mic = mic.to_string();
         let buffer = Buffer::default();
         let (stop_tx, stop_rx) = mpsc::channel::<()>();
         let (ready_tx, ready_rx) = mpsc::channel::<Result<u32, String>>();
@@ -30,7 +45,7 @@ impl Recording {
         thread::Builder::new()
             .name("audio".into())
             .spawn(move || {
-                let stream = match open_stream(&buf) {
+                let stream = match open_stream(&mic, &buf) {
                     Ok((stream, rate)) => {
                         let _ = ready_tx.send(Ok(rate));
                         stream
@@ -71,9 +86,17 @@ impl Recording {
     }
 }
 
-fn open_stream(buffer: &Buffer) -> Result<(cpal::Stream, u32), String> {
-    let device = cpal::default_host()
-        .default_input_device()
+fn open_stream(mic: &str, buffer: &Buffer) -> Result<(cpal::Stream, u32), String> {
+    let host = cpal::default_host();
+    let chosen = if mic.is_empty() {
+        None
+    } else {
+        host.input_devices()
+            .ok()
+            .and_then(|mut it| it.find(|d| device_name(d).as_deref() == Some(mic)))
+    };
+    let device = chosen
+        .or_else(|| host.default_input_device())
         .ok_or("no microphone found")?;
     let config = device.default_input_config().map_err(|e| e.to_string())?;
     let rate = config.sample_rate();
@@ -116,6 +139,10 @@ where
             None,
         )
         .map_err(|e| e.to_string())
+}
+
+pub fn resample_to_whisper(input: &[f32], from: u32) -> Vec<f32> {
+    resample(input, from, WHISPER_RATE)
 }
 
 /// Linear interpolation resampler. Good enough for speech.

@@ -1,61 +1,79 @@
-//! Local speech-to-text with whisper.cpp. Downloads the model on first run.
+//! Speech-to-text engines behind one interface: Parakeet (default) or Whisper.
 
-use std::fs;
-use std::io;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters, WhisperState};
 
 use crate::audio::WHISPER_RATE;
+use crate::models::{Kind, Model};
+use crate::parakeet::Parakeet;
 
-const MODEL_FILE: &str = "ggml-small.bin";
-const MODEL_URL: &str = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin";
+pub enum Engine {
+    Parakeet(Box<Parakeet>),
+    Whisper(Box<Whisper>),
+}
 
-pub struct Stt {
+impl Engine {
+    /// Loads `model` from disk; it must already be downloaded.
+    pub fn load(model: &Model, root: &Path) -> Result<Self, String> {
+        let dir = model.dir(root);
+        Ok(match model.kind {
+            Kind::Parakeet => Self::Parakeet(Box::new(Parakeet::load(&dir)?)),
+            Kind::Whisper => Self::Whisper(Box::new(Whisper::load(&dir.join(model.files[0]))?)),
+        })
+    }
+
+    /// `language` is "auto" or an ISO code; Parakeet always auto-detects.
+    pub fn transcribe(&mut self, samples: &[f32], language: &str) -> Result<String, String> {
+        // Both models dislike clips under a second; pad with silence.
+        let mut audio = samples.to_vec();
+        let min = WHISPER_RATE as usize * 11 / 10;
+        if audio.len() < min {
+            audio.resize(min, 0.0);
+        }
+        let text = match self {
+            Self::Parakeet(p) => p.transcribe(&audio)?,
+            Self::Whisper(w) => w.transcribe(&audio, language)?,
+        };
+        Ok(clean(&text))
+    }
+}
+
+pub struct Whisper {
     _ctx: WhisperContext,
     state: WhisperState,
 }
 
-impl Stt {
-    pub fn load(dir: &Path) -> Result<Self, String> {
-        let path = ensure_model(dir)?;
+impl Whisper {
+    fn load(path: &Path) -> Result<Self, String> {
         whisper_rs::install_logging_hooks();
-        let ctx = WhisperContext::new_with_params(&path, WhisperContextParameters::default())
+        let ctx = WhisperContext::new_with_params(path, WhisperContextParameters::default())
             .map_err(|e| format!("couldn't load model: {e}"))?;
         let state = ctx.create_state().map_err(|e| e.to_string())?;
         Ok(Self { _ctx: ctx, state })
     }
 
-    pub fn transcribe(&mut self, samples: &[f32]) -> Result<String, String> {
+    fn transcribe(&mut self, audio: &[f32], language: &str) -> Result<String, String> {
         let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
-        params.set_language(None); // auto-detect
-        params.set_n_threads(threads());
+        params.set_language(if language == "auto" { None } else { Some(language) });
+        params.set_n_threads(std::thread::available_parallelism().map_or(4, |n| n.get().min(8)) as i32);
         params.set_no_context(true);
         params.set_no_timestamps(true);
         params.set_print_special(false);
         params.set_print_progress(false);
         params.set_print_realtime(false);
         params.set_print_timestamps(false);
-
-        // whisper.cpp rejects clips shorter than 1 s.
-        let mut audio = samples.to_vec();
-        let min = WHISPER_RATE as usize * 11 / 10;
-        if audio.len() < min {
-            audio.resize(min, 0.0);
-        }
-        self.state.full(params, &audio).map_err(|e| e.to_string())?;
-
-        let text = self
+        self.state.full(params, audio).map_err(|e| e.to_string())?;
+        Ok(self
             .state
             .as_iter()
             .filter_map(|s| s.to_str_lossy().ok().map(|t| t.into_owned()))
             .collect::<Vec<_>>()
-            .join(" ");
-        Ok(clean(&text))
+            .join(" "))
     }
 }
 
-/// Drops whisper's non-speech markers such as "[BLANK_AUDIO]" or "(music)".
+/// Drops non-speech markers such as "[BLANK_AUDIO]" or "(music)".
 fn clean(text: &str) -> String {
     let mut out = String::new();
     let mut depth = 0;
@@ -68,28 +86,6 @@ fn clean(text: &str) -> String {
         }
     }
     out.split_whitespace().collect::<Vec<_>>().join(" ")
-}
-
-fn threads() -> i32 {
-    std::thread::available_parallelism()
-        .map(|n| n.get().min(8) as i32)
-        .unwrap_or(4)
-}
-
-fn ensure_model(dir: &Path) -> Result<PathBuf, String> {
-    let path = dir.join(MODEL_FILE);
-    if path.exists() {
-        return Ok(path);
-    }
-    fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-    let part = dir.join(format!("{MODEL_FILE}.part"));
-    eprintln!("[stt] downloading {MODEL_URL}");
-    let resp = ureq::get(MODEL_URL).call().map_err(|e| format!("download failed: {e}"))?;
-    let mut reader = resp.into_body().into_reader();
-    let mut file = fs::File::create(&part).map_err(|e| e.to_string())?;
-    io::copy(&mut reader, &mut file).map_err(|e| format!("download failed: {e}"))?;
-    fs::rename(&part, &path).map_err(|e| e.to_string())?;
-    Ok(path)
 }
 
 #[cfg(test)]
